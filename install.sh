@@ -46,6 +46,12 @@ install_dep() {
     if ! command -v brew &>/dev/null; then
       echo -e "  ${YELLOW}→ Homebrew not found. Installing Homebrew first...${NC}"
       /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+      # Homebrew doesn't add itself to the current shell's PATH — add it now.
+      if [[ -x /opt/homebrew/bin/brew ]]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+      elif [[ -x /usr/local/bin/brew ]]; then
+        eval "$(/usr/local/bin/brew shellenv)"
+      fi
     fi
     brew install "$pkg"
   elif [[ "$OS" == "linux" ]]; then
@@ -94,9 +100,11 @@ mkdir -p "$INSTALL_DIR/hooks"
 
 curl -fsSL "$REPO_URL/hooks/popup.sh" -o "$INSTALL_DIR/hooks/popup.sh"
 curl -fsSL "$REPO_URL/run.sh"         -o "$INSTALL_DIR/run.sh"
+curl -fsSL "$REPO_URL/uninstall.sh"   -o "$INSTALL_DIR/uninstall.sh"
 
 chmod +x "$INSTALL_DIR/hooks/popup.sh"
 chmod +x "$INSTALL_DIR/run.sh"
+chmod +x "$INSTALL_DIR/uninstall.sh"
 
 echo -e "  ${GREEN}✓ Files installed to $INSTALL_DIR${NC}"
 
@@ -131,26 +139,23 @@ HOOK_ENTRY=$(cat <<EOF
 EOF
 )
 
-if [[ -f "$CLAUDE_SETTINGS" ]]; then
-  # File exists — merge the hook in with jq
-  EXISTING=$(cat "$CLAUDE_SETTINGS")
+HOOK_CMD="$INSTALL_DIR/hooks/popup.sh"
 
-  # Check if our hook is already registered
-  if echo "$EXISTING" | jq -e '.hooks.Notification' &>/dev/null; then
-    # Append to existing Notification array
-    UPDATED=$(echo "$EXISTING" | jq \
-      --argjson entry "$HOOK_ENTRY" \
-      '.hooks.Notification += [$entry]')
-  else
-    # Add Notification key under hooks
-    UPDATED=$(echo "$EXISTING" | jq \
-      --argjson entry "$HOOK_ENTRY" \
-      '.hooks.Notification = [$entry]')
-  fi
-
+if [[ -s "$CLAUDE_SETTINGS" ]] && jq -e . "$CLAUDE_SETTINGS" &>/dev/null; then
+  # File exists and is valid JSON — strip any prior copies of our hook,
+  # then add one fresh. Idempotent on re-run; also cleans up dupes left by
+  # earlier buggy installs.
+  UPDATED=$(jq \
+    --argjson entry "$HOOK_ENTRY" \
+    --arg cmd "$HOOK_CMD" \
+    '.hooks.Notification = (
+       ((.hooks.Notification // [])
+        | map(select(([(.hooks // [])[].command] | index($cmd)) | not)))
+       + [$entry]
+     )' "$CLAUDE_SETTINGS")
   echo "$UPDATED" > "$CLAUDE_SETTINGS"
 else
-  # Create fresh settings.json
+  # File missing, empty, or not valid JSON — create fresh
   cat > "$CLAUDE_SETTINGS" <<EOF
 {
   "hooks": {
@@ -176,11 +181,15 @@ if [[ "$ADD_ALIAS" != "n" && "$ADD_ALIAS" != "N" ]]; then
   fi
 
   if [[ -n "$SHELL_RC" ]]; then
-    echo "" >> "$SHELL_RC"
-    echo "# claude-popup" >> "$SHELL_RC"
-    echo "alias claude-popup='$INSTALL_DIR/run.sh'" >> "$SHELL_RC"
-    echo -e "  ${GREEN}✓ Alias added to $SHELL_RC${NC}"
-    echo -e "  ${YELLOW}  Run: source $SHELL_RC  (or open a new terminal)${NC}"
+    if [[ -f "$SHELL_RC" ]] && grep -q "^alias claude-popup=" "$SHELL_RC"; then
+      echo -e "  ${GREEN}✓ Alias already present in $SHELL_RC${NC}"
+    else
+      echo "" >> "$SHELL_RC"
+      echo "# claude-popup" >> "$SHELL_RC"
+      echo "alias claude-popup='$INSTALL_DIR/run.sh'" >> "$SHELL_RC"
+      echo -e "  ${GREEN}✓ Alias added to $SHELL_RC${NC}"
+      echo -e "  ${YELLOW}  Run: source $SHELL_RC  (or open a new terminal)${NC}"
+    fi
   else
     echo -e "  ${YELLOW}  Could not detect shell rc file. Add this manually:${NC}"
     echo "    alias claude-popup='$INSTALL_DIR/run.sh'"

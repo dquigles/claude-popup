@@ -17,16 +17,42 @@ if ! tmux has-session -t "$SESSION" 2>/dev/null; then
   exit 0
 fi
 
-# Don't open a second popup if one is already showing
-if tmux display-message -p "#{window_name}" 2>/dev/null | grep -q "popup"; then
+# Don't open a second popup if one is already showing.
+# tmux has no native "is a popup open?" check, so use an atomic mkdir lock.
+# The command we hand to the terminal removes the lock when it closes.
+LOCK="${TMPDIR:-/tmp}/claude-popup-${USER}.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
   exit 0
 fi
 
-# Pop up a floating window attached to the claude session
-# -E: close popup when the command exits (i.e. when you detach)
-# -w/-h: size of the popup (percentage of terminal)
-tmux display-popup \
-  -E \
-  -w 85% \
-  -h 75% \
-  "tmux attach-session -t $SESSION"
+# Command the new terminal/popup will run: attach to the session, then clean
+# up the lock when the user detaches. TMUX= clears the parent env var so
+# tmux doesn't refuse the nested attach.
+ATTACH_CMD="TMUX= tmux attach-session -t '$SESSION'; rmdir '$LOCK' 2>/dev/null"
+
+# Pick a mechanism:
+#   - If any tmux client is already attached on this server, overlay a popup
+#     on it (lighter, no new window).
+#   - Otherwise spawn a real OS terminal window so the user actually sees it.
+if [[ -n "$(tmux list-clients 2>/dev/null)" ]]; then
+  tmux display-popup -E -w 85% -h 75% "$ATTACH_CMD"
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+  # macOS: open a new Terminal.app window
+  osascript <<EOF >/dev/null 2>&1
+tell application "Terminal"
+  activate
+  do script "$ATTACH_CMD; exit"
+end tell
+EOF
+else
+  # Linux: best-effort across common terminal emulators
+  for term in x-terminal-emulator gnome-terminal konsole xfce4-terminal alacritty kitty xterm; do
+    if command -v "$term" &>/dev/null; then
+      case "$term" in
+        gnome-terminal) "$term" -- bash -c "$ATTACH_CMD" &>/dev/null & ;;
+        *)              "$term" -e bash -c "$ATTACH_CMD" &>/dev/null & ;;
+      esac
+      break
+    fi
+  done
+fi

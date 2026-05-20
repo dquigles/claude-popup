@@ -6,8 +6,10 @@ SESSION="claude-code"
 
 # Kill existing session if requested
 if [[ "$1" == "--reset" ]]; then
-  tmux kill-session -t "$SESSION" 2>/dev/null
-  echo "Session reset."
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    tmux kill-session -t "$SESSION"
+    echo "Session reset."
+  fi
 fi
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
