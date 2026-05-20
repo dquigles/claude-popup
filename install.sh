@@ -106,7 +106,7 @@ echo "Where should the hook apply?"
 echo "  [1] Globally — all projects (recommended)"
 echo "  [2] Per-project — only the current directory"
 echo ""
-read -rp "  Choice [1/2]: " HOOK_SCOPE
+read -rp "  Choice [1/2]: " HOOK_SCOPE </dev/tty
 
 if [[ "$HOOK_SCOPE" == "2" ]]; then
   CLAUDE_SETTINGS="$(pwd)/.claude/settings.json"
@@ -166,7 +166,7 @@ echo -e "  ${GREEN}✓ Hook registered in $CLAUDE_SETTINGS${NC}"
 
 # ── Shell alias (optional) ────────────────────────────────────────────────────
 echo ""
-read -rp "Add 'claude-popup' alias to your shell? [Y/n]: " ADD_ALIAS
+read -rp "Add 'claude-popup' alias to your shell? [Y/n]: " ADD_ALIAS </dev/tty
 if [[ "$ADD_ALIAS" != "n" && "$ADD_ALIAS" != "N" ]]; then
   SHELL_RC=""
   if [[ "$SHELL" == *"zsh"* ]]; then
