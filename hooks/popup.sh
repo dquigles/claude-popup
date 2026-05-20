@@ -2,17 +2,9 @@
 # Claude Code tmux popup hook
 # Fires on Notification events — pops up the claude session when input is needed
 
-INPUT=$(cat)
-
-# Debug log — every invocation, with timestamp + raw payload
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] $INPUT" >> /tmp/claude-popup-debug.log
-
-# Only trigger on awaiting_input notifications
-TRIGGER=$(echo "$INPUT" | jq -r '.trigger // ""')
-if [[ "$TRIGGER" != "awaiting_input" ]]; then
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] skipped: trigger='$TRIGGER'" >> /tmp/claude-popup-debug.log
-  exit 0
-fi
+# Drain stdin (Claude Code's Notification payload) — we don't need to inspect
+# it, since this hook is only registered for Notification events.
+cat >/dev/null
 
 SESSION="claude-code"
 
