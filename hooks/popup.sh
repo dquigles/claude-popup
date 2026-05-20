@@ -4,9 +4,13 @@
 
 INPUT=$(cat)
 
+# Debug log — every invocation, with timestamp + raw payload
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] $INPUT" >> /tmp/claude-popup-debug.log
+
 # Only trigger on awaiting_input notifications
 TRIGGER=$(echo "$INPUT" | jq -r '.trigger // ""')
 if [[ "$TRIGGER" != "awaiting_input" ]]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] skipped: trigger='$TRIGGER'" >> /tmp/claude-popup-debug.log
   exit 0
 fi
 
