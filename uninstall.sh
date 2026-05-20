@@ -6,7 +6,8 @@
 set -e
 
 INSTALL_DIR="$HOME/.claude-popup"
-HOOK_CMD="$INSTALL_DIR/hooks/popup.sh"
+POPUP_CMD="$INSTALL_DIR/hooks/popup.sh"
+DETACH_CMD="$INSTALL_DIR/hooks/detach.sh"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -24,33 +25,44 @@ if command -v tmux &>/dev/null && tmux has-session -t claude-code 2>/dev/null; t
   echo -e "  ${GREEN}✓ Killed running tmux session 'claude-code'${NC}"
 fi
 
-# ── Strip hook from settings files ────────────────────────────────────────────
-strip_hook() {
+# ── Strip hooks from settings files ───────────────────────────────────────────
+# Removes any hook entries whose command matches one of ours, across every
+# event array under .hooks. Also prunes now-empty event arrays and an
+# eventually-empty .hooks object.
+strip_hooks() {
   local settings="$1"
   [[ -s "$settings" ]] || return 0
   command -v jq &>/dev/null || return 0
   jq -e . "$settings" &>/dev/null || return 0
 
-  # Does this file even reference our command?
-  if ! jq -e --arg cmd "$HOOK_CMD" \
-        '[.hooks.Notification[]?.hooks[]?.command] | index($cmd)' \
+  # Bail early if neither command appears anywhere.
+  if ! jq -e --arg p "$POPUP_CMD" --arg d "$DETACH_CMD" \
+        '[.. | objects | .command? // empty] | any(. == $p or . == $d)' \
         "$settings" &>/dev/null; then
     return 0
   fi
 
   local updated
-  updated=$(jq --arg cmd "$HOOK_CMD" '
-    .hooks.Notification = ((.hooks.Notification // [])
-      | map(select(([(.hooks // [])[].command] | index($cmd)) | not)))
-    | if (.hooks.Notification | length) == 0 then del(.hooks.Notification) else . end
-    | if (.hooks // {} | length) == 0 then del(.hooks) else . end
+  updated=$(jq --arg p "$POPUP_CMD" --arg d "$DETACH_CMD" '
+    (.hooks // {}) as $h
+    | .hooks = (
+        $h
+        | with_entries(
+            .value |= (
+              map(select(([(.hooks // [])[].command]
+                           | any(. == $p or . == $d)) | not))
+            )
+          )
+        | with_entries(select(.value | length > 0))
+      )
+    | if (.hooks | length) == 0 then del(.hooks) else . end
   ' "$settings")
   echo "$updated" > "$settings"
-  echo -e "  ${GREEN}✓ Removed hook from $settings${NC}"
+  echo -e "  ${GREEN}✓ Removed hooks from $settings${NC}"
 }
 
-strip_hook "$HOME/.claude/settings.json"
-[[ -f "$(pwd)/.claude/settings.json" ]] && strip_hook "$(pwd)/.claude/settings.json"
+strip_hooks "$HOME/.claude/settings.json"
+[[ -f "$(pwd)/.claude/settings.json" ]] && strip_hooks "$(pwd)/.claude/settings.json"
 
 # ── Remove install dir ────────────────────────────────────────────────────────
 if [[ -d "$INSTALL_DIR" ]]; then

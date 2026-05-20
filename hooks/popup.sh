@@ -21,10 +21,14 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   exit 0
 fi
 
-# Command the new terminal/popup will run: attach to the session, then clean
-# up the lock when the user detaches. TMUX= clears the parent env var so
-# tmux doesn't refuse the nested attach.
-ATTACH_CMD="TMUX= tmux attach-session -t '$SESSION'; rmdir '$LOCK' 2>/dev/null"
+# Marker file — detach.sh checks for this so it only auto-detaches popup
+# attaches (and leaves manual `tmux attach` alone).
+MARKER="${TMPDIR:-/tmp}/claude-popup-${USER}.active"
+
+# Command the new terminal/popup will run: mark popup active, attach to the
+# session, then clean up marker + lock when the user detaches. TMUX= clears
+# the parent env var so tmux doesn't refuse the nested attach.
+ATTACH_CMD="touch '$MARKER'; TMUX= tmux attach-session -t '$SESSION'; rm -f '$MARKER'; rmdir '$LOCK' 2>/dev/null"
 
 # Pick a mechanism:
 #   - If any tmux client is already attached on this server, overlay a popup

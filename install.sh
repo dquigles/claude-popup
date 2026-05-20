@@ -98,13 +98,13 @@ echo "Installing claude-popup..."
 
 mkdir -p "$INSTALL_DIR/hooks"
 
-curl -fsSL "$REPO_URL/hooks/popup.sh" -o "$INSTALL_DIR/hooks/popup.sh"
-curl -fsSL "$REPO_URL/run.sh"         -o "$INSTALL_DIR/run.sh"
-curl -fsSL "$REPO_URL/uninstall.sh"   -o "$INSTALL_DIR/uninstall.sh"
+curl -fsSL "$REPO_URL/hooks/popup.sh"  -o "$INSTALL_DIR/hooks/popup.sh"
+curl -fsSL "$REPO_URL/hooks/detach.sh" -o "$INSTALL_DIR/hooks/detach.sh"
+curl -fsSL "$REPO_URL/run.sh"          -o "$INSTALL_DIR/run.sh"
+curl -fsSL "$REPO_URL/uninstall.sh"    -o "$INSTALL_DIR/uninstall.sh"
 
-chmod +x "$INSTALL_DIR/hooks/popup.sh"
-chmod +x "$INSTALL_DIR/run.sh"
-chmod +x "$INSTALL_DIR/uninstall.sh"
+chmod +x "$INSTALL_DIR/hooks/popup.sh" "$INSTALL_DIR/hooks/detach.sh" \
+         "$INSTALL_DIR/run.sh" "$INSTALL_DIR/uninstall.sh"
 
 echo -e "  ${GREEN}✓ Files installed to $INSTALL_DIR${NC}"
 
@@ -125,49 +125,36 @@ else
   echo -e "  ${YELLOW}→ Applying hook globally${NC}"
 fi
 
-# ── Merge hook into settings.json ────────────────────────────────────────────
-HOOK_ENTRY=$(cat <<EOF
-{
-  "matcher": "",
-  "hooks": [
-    {
-      "type": "command",
-      "command": "$INSTALL_DIR/hooks/popup.sh"
-    }
-  ]
-}
-EOF
-)
+# ── Merge hooks into settings.json ───────────────────────────────────────────
+# Ensure settings file is at least valid JSON before merging.
+if [[ ! -s "$CLAUDE_SETTINGS" ]] || ! jq -e . "$CLAUDE_SETTINGS" &>/dev/null; then
+  echo '{}' > "$CLAUDE_SETTINGS"
+fi
 
-HOOK_CMD="$INSTALL_DIR/hooks/popup.sh"
-
-if [[ -s "$CLAUDE_SETTINGS" ]] && jq -e . "$CLAUDE_SETTINGS" &>/dev/null; then
-  # File exists and is valid JSON — strip any prior copies of our hook,
-  # then add one fresh. Idempotent on re-run; also cleans up dupes left by
-  # earlier buggy installs.
-  UPDATED=$(jq \
-    --argjson entry "$HOOK_ENTRY" \
-    --arg cmd "$HOOK_CMD" \
-    '.hooks.Notification = (
-       ((.hooks.Notification // [])
+# Register a (event, command) hook idempotently: strips any prior copies of
+# the command under that event before adding it fresh.
+register_hook() {
+  local event="$1" cmd="$2"
+  local entry updated
+  entry=$(jq -nc --arg cmd "$cmd" \
+    '{matcher:"", hooks:[{type:"command", command:$cmd}]}')
+  updated=$(jq \
+    --arg event "$event" \
+    --argjson entry "$entry" \
+    --arg cmd "$cmd" \
+    '.hooks[$event] = (
+       ((.hooks[$event] // [])
         | map(select(([(.hooks // [])[].command] | index($cmd)) | not)))
        + [$entry]
      )' "$CLAUDE_SETTINGS")
-  echo "$UPDATED" > "$CLAUDE_SETTINGS"
-else
-  # File missing, empty, or not valid JSON — create fresh
-  cat > "$CLAUDE_SETTINGS" <<EOF
-{
-  "hooks": {
-    "Notification": [
-      $HOOK_ENTRY
-    ]
-  }
+  echo "$updated" > "$CLAUDE_SETTINGS"
 }
-EOF
-fi
 
-echo -e "  ${GREEN}✓ Hook registered in $CLAUDE_SETTINGS${NC}"
+register_hook "Notification"     "$INSTALL_DIR/hooks/popup.sh"
+register_hook "UserPromptSubmit" "$INSTALL_DIR/hooks/detach.sh"
+register_hook "PreToolUse"       "$INSTALL_DIR/hooks/detach.sh"
+
+echo -e "  ${GREEN}✓ Hooks registered in $CLAUDE_SETTINGS${NC}"
 
 # ── Shell alias (optional) ────────────────────────────────────────────────────
 echo ""
