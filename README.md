@@ -5,10 +5,11 @@ Claude Code runs in the background. A floating terminal pops up automatically wh
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/claude-tmux-popup/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dquigles/claude-popup/main/install.sh | bash
 ```
 
 The installer will:
+
 - Check and install missing dependencies (`tmux`, `jq`) via Homebrew (Mac) or apt/dnf/pacman (Linux)
 - Download the hook and run scripts to `~/.claude-tmux-popup/`
 - Register the `Notification` hook in your Claude Code settings (globally or per-project — your choice)

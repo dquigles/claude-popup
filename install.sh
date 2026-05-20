@@ -4,7 +4,7 @@
 
 set -e
 
-REPO_URL="https://raw.githubusercontent.com/YOUR_USERNAME/claude-tmux-popup/main"
+REPO_URL="https://raw.githubusercontent.com/dquigles/claude-tmux-popup/main"
 INSTALL_DIR="$HOME/.claude-tmux-popup"
 CLAUDE_SETTINGS="$HOME/.claude/settings.json"
 
