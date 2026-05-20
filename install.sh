@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# claude-tmux-popup installer
-# One-command install: curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/claude-tmux-popup/main/install.sh | bash
+# claude-popup installer
+# One-command install: curl -fsSL https://raw.githubusercontent.com/dquigles/claude-popup/main/install.sh | bash
 
 set -e
 
-REPO_URL="https://raw.githubusercontent.com/dquigles/claude-tmux-popup/main"
-INSTALL_DIR="$HOME/.claude-tmux-popup"
+REPO_URL="https://raw.githubusercontent.com/dquigles/claude-popup/main"
+INSTALL_DIR="$HOME/.claude-popup"
 CLAUDE_SETTINGS="$HOME/.claude/settings.json"
 
 GREEN='\033[0;32m'
@@ -15,7 +15,7 @@ NC='\033[0m'
 
 echo ""
 echo "╔══════════════════════════════════════╗"
-echo "║      claude-tmux-popup installer     ║"
+echo "║        claude-popup installer        ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 
@@ -88,7 +88,7 @@ fi
 
 # ── Download files ────────────────────────────────────────────────────────────
 echo ""
-echo "Installing claude-tmux-popup..."
+echo "Installing claude-popup..."
 
 mkdir -p "$INSTALL_DIR/hooks"
 
@@ -177,7 +177,7 @@ if [[ "$ADD_ALIAS" != "n" && "$ADD_ALIAS" != "N" ]]; then
 
   if [[ -n "$SHELL_RC" ]]; then
     echo "" >> "$SHELL_RC"
-    echo "# claude-tmux-popup" >> "$SHELL_RC"
+    echo "# claude-popup" >> "$SHELL_RC"
     echo "alias claude-popup='$INSTALL_DIR/run.sh'" >> "$SHELL_RC"
     echo -e "  ${GREEN}✓ Alias added to $SHELL_RC${NC}"
     echo -e "  ${YELLOW}  Run: source $SHELL_RC  (or open a new terminal)${NC}"

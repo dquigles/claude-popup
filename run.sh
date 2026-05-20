@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claude-tmux-popup: run.sh
+# claude-popup: run.sh
 # Starts (or reattaches to) the claude-code tmux session
 
 SESSION="claude-code"
