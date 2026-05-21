@@ -33,7 +33,7 @@ detect_term() {
 
 cleanup_stale() {
   if ! tmux has-session -t "$SESSION" 2>/dev/null; then
-    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE"
+    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE" "$USER_TAG.here-app"
   fi
 }
 
@@ -92,6 +92,10 @@ EOF
     echo "Attached host: (none)"
   fi
 
+  if [[ -f "$USER_TAG.here-app" ]]; then
+    echo "Here-mode target: $(cat "$USER_TAG.here-app")"
+  fi
+
   local client_count
   client_count=$(tmux list-clients -t "$SESSION" 2>/dev/null | wc -l | tr -d ' ')
   echo "Attached clients: ${client_count:-0}"
@@ -146,6 +150,52 @@ do_attach() {
   rm -f "$ATTACHED_HOST_FILE"
 }
 
+# Attach the current terminal to the session, but treat it AS the popup
+# target — write win-id (when possible) and a here-app marker, and skip
+# the attached-host suppression marker. The popup hooks will then refocus
+# this same window/app on Notification and the prev app on PostToolUse.
+do_here() {
+  if [[ -n "$TMUX" ]]; then
+    echo "claude-popup: already inside a tmux session ($TMUX)."
+    echo "Detach first (Ctrl+B D), then re-run from a plain shell."
+    exit 1
+  fi
+  if [[ "$OSTYPE" != "darwin"* ]]; then
+    echo "claude-popup --here is currently macOS-only."
+    exit 1
+  fi
+
+  local term_kind app host win_id
+  term_kind=$(detect_term)
+  host=$(frontmost_app)
+  [[ -z "$host" ]] && host="$TERM_PROGRAM"
+
+  case "$term_kind" in
+    terminal) app="Terminal" ;;
+    iterm)    app="iTerm" ;;
+  esac
+
+  if [[ -n "$app" ]]; then
+    win_id=$(osascript -e "tell application \"$app\" to id of front window" 2>/dev/null)
+  fi
+
+  echo "$term_kind" > "$USER_TAG.term"
+  if [[ -n "$win_id" ]]; then
+    echo "$win_id" > "$USER_TAG.win-id"
+  else
+    rm -f "$USER_TAG.win-id"
+  fi
+  echo "${host:-$app}" > "$USER_TAG.here-app"
+  rm -f "$ATTACHED_HOST_FILE"
+
+  ensure_session "${EXTRA_ARGS[@]}"
+  echo "→ Using this terminal as popup target: ${host:-$app}${win_id:+ (window $win_id)}"
+
+  trap 'rm -f "$USER_TAG.here-app" "$USER_TAG.win-id"' EXIT INT TERM
+  tmux attach-session -t "$SESSION"
+  rm -f "$USER_TAG.here-app" "$USER_TAG.win-id"
+}
+
 # Open (or refocus) a Terminal/iTerm window attached to the session.
 do_popup_window() {
   detect_term > "$USER_TAG.term"
@@ -174,6 +224,7 @@ for arg in "$@"; do
     # (useful for callers without a TTY who still want inline behavior).
     --inline)      LIFECYCLE="attach" ;;
     --popup)       LIFECYCLE="popup" ;;
+    --here)        LIFECYCLE="here" ;;
     *)             EXTRA_ARGS+=("$arg") ;;
   esac
 done
@@ -195,7 +246,7 @@ case "$LIFECYCLE" in
       win_id=$(cat "$USER_TAG.win-id")
       [[ "$(cat "$USER_TAG.term" 2>/dev/null)" == "iterm" ]] && app="iTerm"
     fi
-    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE"
+    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE" "$USER_TAG.here-app"
     if [[ -n "$win_id" ]]; then
       osascript 2>/dev/null <<OSEOF
 tell application "$app"
@@ -216,7 +267,7 @@ OSEOF
       tmux kill-session -t "$SESSION"
       echo "Session reset."
     fi
-    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE"
+    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE" "$USER_TAG.here-app"
     ;;
 esac
 
@@ -229,6 +280,8 @@ if [[ "$LIFECYCLE" == "attach" ]]; then
   do_attach
 elif [[ "$LIFECYCLE" == "popup" ]]; then
   do_popup_window
+elif [[ "$LIFECYCLE" == "here" ]]; then
+  do_here
 elif [[ -t 0 && -t 1 ]]; then
   do_attach
 else

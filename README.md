@@ -48,6 +48,20 @@ claude-popup --reset         # kill and re-create
 claude-popup -- --resume     # everything after `--` is passed to `claude` on first start
 ```
 
+### `--here`: use this terminal as the popup
+
+By default, running `claude-popup` from an interactive shell attaches inline and **suppresses** popup focus when the host app (e.g. `Code`, `Cursor`) is frontmost — the assumption is that you're already in your editor and don't want a popup.
+
+`--here` flips that: it attaches the current terminal *as* the popup target. When Claude needs your input, focus comes to this window; when you grant permission or finish responding, focus returns to whichever app was previously frontmost (Discord, browser, etc.). No separate window ever opens.
+
+```bash
+claude-popup --here          # use this terminal/window as the popup target
+```
+
+- Best supported in **Terminal.app** and **iTerm2** — the front window's id is captured and refocused precisely.
+- From **VSCode / Cursor / other terminals**, the whole host app is activated on focus events (no window-level precision).
+- macOS only.
+
 ### Suppression rules
 
 The Notification hook won't pop a window when:

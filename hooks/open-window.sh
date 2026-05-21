@@ -24,6 +24,34 @@ case "$TERM_KIND" in
   *) TERM_KIND="terminal" ;;
 esac
 
+# ── Here-mode (--here): refocus the existing terminal/app; never spawn ───────
+HERE_APP_FILE="$USER_TAG.here-app"
+if [[ -f "$HERE_APP_FILE" && "$OSTYPE" == "darwin"* ]]; then
+  HERE_APP=$(cat "$HERE_APP_FILE")
+  case "$TERM_KIND" in
+    terminal|iterm)
+      TARGET_APP="Terminal"
+      [[ "$TERM_KIND" == "iterm" ]] && TARGET_APP="iTerm"
+      if [[ -f "$WIN_ID_FILE" ]]; then
+        WIN_ID=$(cat "$WIN_ID_FILE")
+        osascript 2>/dev/null <<EOF
+tell application "$TARGET_APP"
+  activate
+  try
+    set index of (first window whose id is $WIN_ID) to 1
+  end try
+end tell
+EOF
+        echo "[$(date '+%H:%M:%S')] open-window.sh: here-mode refocused $TARGET_APP window $WIN_ID" >> "$LOG"
+        exit 0
+      fi
+      ;;
+  esac
+  osascript -e "tell application \"$HERE_APP\" to activate" 2>/dev/null
+  echo "[$(date '+%H:%M:%S')] open-window.sh: here-mode activated $HERE_APP" >> "$LOG"
+  exit 0
+fi
+
 # ── macOS: Terminal.app ──────────────────────────────────────────────────────
 open_terminal_app() {
   local alive=""
