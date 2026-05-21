@@ -1,58 +1,38 @@
 #!/usr/bin/env bash
-# Claude Code tmux popup hook
-# Fires on Notification events — pops up the claude session when input is needed
+# Claude Code popup hook — Notification event
+# Captures the frontmost app (so detach.sh can restore focus) and delegates
+# window open/refocus to open-window.sh.
 
-# Drain stdin (Claude Code's Notification payload) — we don't need to inspect
-# it, since this hook is only registered for Notification events.
-cat >/dev/null
+cat >/dev/null  # drain Claude's payload — we don't need to inspect it
 
 SESSION="claude-code"
 
-# Make sure the session exists
+# Only act when this hook is running inside the claude-popup tmux session.
+# Filters out VS Code's Claude extension and any other Claude session.
+if [[ -z "$TMUX" ]] || [[ "$(tmux display-message -p '#S' 2>/dev/null)" != "$SESSION" ]]; then
+  exit 0
+fi
+
+echo "[$(date '+%H:%M:%S')] popup.sh fired" >> /tmp/claude-popup-debug.log
+PREV_APP_FILE="/tmp/claude-popup-${USER}.prev-app"
+
 if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+  echo "[$(date '+%H:%M:%S')] EXIT: tmux session '$SESSION' not found" >> /tmp/claude-popup-debug.log
   exit 0
 fi
 
-# Don't open a second popup if one is already showing.
-# tmux has no native "is a popup open?" check, so use an atomic mkdir lock.
-# The command we hand to the terminal removes the lock when it closes.
-LOCK="${TMPDIR:-/tmp}/claude-popup-${USER}.lock"
-if ! mkdir "$LOCK" 2>/dev/null; then
-  exit 0
+# Remember the frontmost app (macOS only) so detach.sh can restore focus to it.
+# Skip if Terminal or iTerm is already frontmost (it's our own popup).
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  PREV_APP=$(osascript -e 'tell application "System Events" to name of first application process whose frontmost is true' 2>/dev/null)
+  if [[ -n "$PREV_APP" && "$PREV_APP" != "Terminal" && "$PREV_APP" != "iTerm2" ]]; then
+    echo "$PREV_APP" > "$PREV_APP_FILE"
+    echo "[$(date '+%H:%M:%S')] captured prev app: $PREV_APP" >> /tmp/claude-popup-debug.log
+  fi
+
+  if [[ "${CLAUDE_POPUP_NOTIFY:-1}" != "0" ]]; then
+    osascript -e 'display notification "Claude needs input" with title "claude-popup"' 2>/dev/null
+  fi
 fi
 
-# Marker file — detach.sh checks for this so it only auto-detaches popup
-# attaches (and leaves manual `tmux attach` alone).
-MARKER="${TMPDIR:-/tmp}/claude-popup-${USER}.active"
-
-# Command the new terminal/popup will run: mark popup active, attach to the
-# session, then clean up marker + lock when the user detaches. TMUX= clears
-# the parent env var so tmux doesn't refuse the nested attach.
-ATTACH_CMD="touch '$MARKER'; TMUX= tmux attach-session -t '$SESSION'; rm -f '$MARKER'; rmdir '$LOCK' 2>/dev/null"
-
-# Pick a mechanism:
-#   - If any tmux client is already attached on this server, overlay a popup
-#     on it (lighter, no new window).
-#   - Otherwise spawn a real OS terminal window so the user actually sees it.
-if [[ -n "$(tmux list-clients 2>/dev/null)" ]]; then
-  tmux display-popup -E -w 85% -h 75% "$ATTACH_CMD"
-elif [[ "$OSTYPE" == "darwin"* ]]; then
-  # macOS: open a new Terminal.app window
-  osascript <<EOF >/dev/null 2>&1
-tell application "Terminal"
-  activate
-  do script "$ATTACH_CMD; exit"
-end tell
-EOF
-else
-  # Linux: best-effort across common terminal emulators
-  for term in x-terminal-emulator gnome-terminal konsole xfce4-terminal alacritty kitty xterm; do
-    if command -v "$term" &>/dev/null; then
-      case "$term" in
-        gnome-terminal) "$term" -- bash -c "$ATTACH_CMD" &>/dev/null & ;;
-        *)              "$term" -e bash -c "$ATTACH_CMD" &>/dev/null & ;;
-      esac
-      break
-    fi
-  done
-fi
+"$(dirname "$0")/open-window.sh" "$SESSION"

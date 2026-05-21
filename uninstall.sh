@@ -70,6 +70,14 @@ if [[ -d "$INSTALL_DIR" ]]; then
   echo -e "  ${GREEN}✓ Removed $INSTALL_DIR${NC}"
 fi
 
+# ── Remove tracking + log files in /tmp ───────────────────────────────────────
+USER_TAG="/tmp/claude-popup-${USER}"
+TMP_FILES=("$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" \
+           "/tmp/claude-popup-debug.log" "/tmp/claude-popup-debug.log.1")
+for f in "${TMP_FILES[@]}"; do
+  [[ -e "$f" ]] && rm -f "$f" && echo -e "  ${GREEN}✓ Removed $f${NC}"
+done
+
 # ── Strip alias from shell rc files ───────────────────────────────────────────
 for SHELL_RC in "$HOME/.zshrc" "$HOME/.bashrc"; do
   if [[ -f "$SHELL_RC" ]] && grep -qE '^(# claude-popup$|alias claude-popup=)' "$SHELL_RC"; then

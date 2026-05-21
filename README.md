@@ -23,18 +23,32 @@ The installer will:
 claude-popup
 ```
 
-Claude Code starts in a background tmux session. Whenever it needs input, a popup appears. Give your input, then press **Ctrl+D** to dismiss the popup and go back to whatever you were doing.
+Claude Code starts in a background tmux session and a window opens automatically, attached to it. The window uses the same terminal emulator you launched `claude-popup` from (Terminal.app or iTerm2 on macOS — anything else falls back to Terminal.app). The tmux session inherits your current working directory, so Claude opens in the right project.
 
-## Manual attach
+Whenever Claude needs input later, that same window is refocused. Press **Ctrl+D** (or close the window) to send it back to the background.
+
+## Usage
+
+```bash
+claude-popup                 # start (or refocus) Claude
+claude-popup --status        # show session, window, and emulator state
+claude-popup --stop          # kill the session and clean up tracking files
+claude-popup --reset         # kill the session, then start a fresh one
+claude-popup -- --resume     # everything after `--` is passed to `claude`
+```
+
+### Environment variables
+
+- `CLAUDE_POPUP_TERMINAL=iterm|terminal` — force a specific emulator instead of auto-detect.
+- `CLAUDE_POPUP_NOTIFY=0` — suppress the macOS notification banner when Claude needs input.
+- `CLAUDE_POPUP_KEEP_ALIVE=1` — keep the tmux session running after the popup window closes (default: closing the window ends the session).
+
+## Manual attach (optional)
+
+If the popup window was closed and you want to reattach without restarting:
 
 ```bash
 tmux attach -t claude-code
-```
-
-## Reset / restart session
-
-```bash
-~/.claude-popup/run.sh --reset
 ```
 
 ## Requirements
@@ -45,4 +59,4 @@ tmux attach -t claude-code
 
 ## How it works
 
-Claude Code's `Notification` hook fires whenever Claude needs user input. The hook script calls `tmux display-popup`, which opens a floating terminal window attached to the background Claude session. When you submit your input and press Ctrl+D, the popup closes (the `-E` flag on `display-popup` ensures this) and focus returns to whatever you were doing.
+`run.sh` starts Claude Code inside a background tmux session (rooted at `$PWD`) and opens a window attached to it via a shared helper (`hooks/open-window.sh`). The detected emulator (`terminal` or `iterm`) and the window id are persisted under `/tmp/claude-popup-${USER}.*` so subsequent events can refocus the same window in the same app. Claude Code's `Notification` hook calls the same helper whenever Claude needs your input — if the window is still alive it just gets refocused, otherwise a new one is opened. When you submit input, the `UserPromptSubmit`/`PostToolUse` hooks (`detach.sh`) restore focus to whatever app was frontmost before the popup appeared.

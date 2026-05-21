@@ -98,12 +98,14 @@ echo "Installing claude-popup..."
 
 mkdir -p "$INSTALL_DIR/hooks"
 
-curl -fsSL "$REPO_URL/hooks/popup.sh"  -o "$INSTALL_DIR/hooks/popup.sh"
-curl -fsSL "$REPO_URL/hooks/detach.sh" -o "$INSTALL_DIR/hooks/detach.sh"
-curl -fsSL "$REPO_URL/run.sh"          -o "$INSTALL_DIR/run.sh"
-curl -fsSL "$REPO_URL/uninstall.sh"    -o "$INSTALL_DIR/uninstall.sh"
+curl -fsSL "$REPO_URL/hooks/popup.sh"       -o "$INSTALL_DIR/hooks/popup.sh"
+curl -fsSL "$REPO_URL/hooks/detach.sh"      -o "$INSTALL_DIR/hooks/detach.sh"
+curl -fsSL "$REPO_URL/hooks/open-window.sh" -o "$INSTALL_DIR/hooks/open-window.sh"
+curl -fsSL "$REPO_URL/run.sh"               -o "$INSTALL_DIR/run.sh"
+curl -fsSL "$REPO_URL/uninstall.sh"         -o "$INSTALL_DIR/uninstall.sh"
 
 chmod +x "$INSTALL_DIR/hooks/popup.sh" "$INSTALL_DIR/hooks/detach.sh" \
+         "$INSTALL_DIR/hooks/open-window.sh" \
          "$INSTALL_DIR/run.sh" "$INSTALL_DIR/uninstall.sh"
 
 echo -e "  ${GREEN}✓ Files installed to $INSTALL_DIR${NC}"
@@ -151,8 +153,9 @@ register_hook() {
 }
 
 register_hook "Notification"     "$INSTALL_DIR/hooks/popup.sh"
+register_hook "Stop"             "$INSTALL_DIR/hooks/popup.sh"
 register_hook "UserPromptSubmit" "$INSTALL_DIR/hooks/detach.sh"
-register_hook "PreToolUse"       "$INSTALL_DIR/hooks/detach.sh"
+register_hook "PostToolUse"      "$INSTALL_DIR/hooks/detach.sh"
 
 echo -e "  ${GREEN}✓ Hooks registered in $CLAUDE_SETTINGS${NC}"
 
