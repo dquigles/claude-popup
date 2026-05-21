@@ -73,6 +73,7 @@ fi
 # ── Remove tracking + log files in /tmp ───────────────────────────────────────
 USER_TAG="/tmp/claude-popup-${USER}"
 TMP_FILES=("$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" \
+           "$USER_TAG.attached-host" "$USER_TAG.inline-host" \
            "/tmp/claude-popup-debug.log" "/tmp/claude-popup-debug.log.1")
 for f in "${TMP_FILES[@]}"; do
   [[ -e "$f" ]] && rm -f "$f" && echo -e "  ${GREEN}✓ Removed $f${NC}"

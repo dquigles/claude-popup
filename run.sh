@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # claude-popup: run.sh
-# Starts/reuses the claude-code tmux session and opens a Terminal/iTerm
-# window attached to it. Also supports --stop, --status, --reset, and
-# pass-through args to `claude` after `--`.
+# Single entry point. Manages a shared `claude-code` tmux session and either
+# attaches the current terminal to it (interactive shells) or opens a
+# Terminal/iTerm popup window attached to it (non-interactive callers like
+# Claude Code's Notification hook). Also supports --stop, --status, --reset,
+# and pass-through args after `--`.
 
 SESSION="claude-code"
 USER_TAG="/tmp/claude-popup-${USER}"
 LOG="/tmp/claude-popup-debug.log"
+ATTACHED_HOST_FILE="$USER_TAG.attached-host"
 
 rotate_log() {
   [[ -f "$LOG" ]] || return 0
@@ -30,8 +33,14 @@ detect_term() {
 
 cleanup_stale() {
   if ! tmux has-session -t "$SESSION" 2>/dev/null; then
-    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term"
+    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE"
   fi
+}
+
+# Frontmost macOS app name; empty on non-mac / on failure.
+frontmost_app() {
+  [[ "$OSTYPE" == "darwin"* ]] || { echo ""; return; }
+  osascript -e 'tell application "System Events" to name of first application process whose frontmost is true' 2>/dev/null
 }
 
 print_status() {
@@ -76,6 +85,75 @@ EOF
   if [[ -f "$USER_TAG.prev-app" ]]; then
     echo "Previous app (pending refocus): $(cat "$USER_TAG.prev-app")"
   fi
+
+  if [[ -f "$ATTACHED_HOST_FILE" ]]; then
+    echo "Attached host: $(cat "$ATTACHED_HOST_FILE")"
+  else
+    echo "Attached host: (none)"
+  fi
+
+  local client_count
+  client_count=$(tmux list-clients -t "$SESSION" 2>/dev/null | wc -l | tr -d ' ')
+  echo "Attached clients: ${client_count:-0}"
+}
+
+# Create the tmux session if missing, or report that it's being reused.
+# Args after function name (if any) are appended to the `claude` command
+# only when a fresh session is created.
+ensure_session() {
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    echo "→ Session '$SESSION' already running."
+    return 0
+  fi
+  echo "→ Starting new '$SESSION' tmux session with Claude Code..."
+  tmux new-session -d -s "$SESSION" -c "$PWD" -x 220 -y 50
+  # Tear down the session once the last client detaches (unless opted out).
+  # Defer until first attach so the freshly-created detached session isn't
+  # killed before the caller can connect.
+  if [[ "${CLAUDE_POPUP_KEEP_ALIVE:-0}" != "1" ]]; then
+    tmux set-hook -t "$SESSION" client-attached \
+      "set-option -t $SESSION destroy-unattached on" >/dev/null 2>&1
+  fi
+  local CLAUDE_CMD="claude"
+  if (( $# > 0 )); then
+    CLAUDE_CMD="claude $(printf '%q ' "$@")"
+  fi
+  tmux send-keys -t "$SESSION" "$CLAUDE_CMD" Enter
+}
+
+# Attach the current terminal to the session. The host app (e.g. "Code",
+# "Cursor", "iTerm2") is recorded so the Notification hook can stay quiet
+# when that app is frontmost.
+do_attach() {
+  if [[ -n "$TMUX" ]]; then
+    echo "claude-popup: already inside a tmux session ($TMUX)."
+    echo "Detach first (Ctrl+B D), then re-run from a plain shell."
+    exit 1
+  fi
+
+  detect_term > "$USER_TAG.term"
+  local host
+  host=$(frontmost_app)
+  [[ -z "$host" && "$OSTYPE" != "darwin"* ]] && host="linux"
+  [[ -n "$host" ]] && echo "$host" > "$ATTACHED_HOST_FILE"
+
+  ensure_session "${EXTRA_ARGS[@]}"
+  echo "→ Attaching this terminal to '$SESSION'..."
+
+  # Clear the host marker when this client detaches, regardless of how.
+  trap 'rm -f "$ATTACHED_HOST_FILE"' EXIT INT TERM
+  tmux attach-session -t "$SESSION"
+  rm -f "$ATTACHED_HOST_FILE"
+}
+
+# Open (or refocus) a Terminal/iTerm window attached to the session.
+do_popup_window() {
+  detect_term > "$USER_TAG.term"
+  ensure_session "${EXTRA_ARGS[@]}"
+  "$(dirname "$0")/hooks/open-window.sh" "$SESSION"
+  echo "✓ Claude Code window opened."
+  echo "  Stop:    claude-popup --stop"
+  echo "  Status:  claude-popup --status"
 }
 
 # ── parse args ────────────────────────────────────────────────────────────────
@@ -92,6 +170,10 @@ for arg in "$@"; do
     --stop|--kill) LIFECYCLE="stop" ;;
     --status)      LIFECYCLE="status" ;;
     --reset)       LIFECYCLE="reset" ;;
+    # --inline is an undocumented alias to force the attach path
+    # (useful for callers without a TTY who still want inline behavior).
+    --inline)      LIFECYCLE="attach" ;;
+    --popup)       LIFECYCLE="popup" ;;
     *)             EXTRA_ARGS+=("$arg") ;;
   esac
 done
@@ -113,7 +195,7 @@ case "$LIFECYCLE" in
       win_id=$(cat "$USER_TAG.win-id")
       [[ "$(cat "$USER_TAG.term" 2>/dev/null)" == "iterm" ]] && app="iTerm"
     fi
-    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term"
+    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE"
     if [[ -n "$win_id" ]]; then
       osascript 2>/dev/null <<OSEOF
 tell application "$app"
@@ -134,35 +216,21 @@ OSEOF
       tmux kill-session -t "$SESSION"
       echo "Session reset."
     fi
-    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term"
+    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE"
     ;;
 esac
 
-# Persist detected terminal for open-window.sh and popup.sh
-detect_term > "$USER_TAG.term"
-
-if tmux has-session -t "$SESSION" 2>/dev/null; then
-  echo "→ Session '$SESSION' already running."
+# Dispatch:
+#   --inline (alias 'attach')  → always attach this terminal
+#   --popup                    → always open a popup window
+#   no flag + interactive TTY  → attach this terminal
+#   no flag + non-interactive  → open a popup window (hook callers)
+if [[ "$LIFECYCLE" == "attach" ]]; then
+  do_attach
+elif [[ "$LIFECYCLE" == "popup" ]]; then
+  do_popup_window
+elif [[ -t 0 && -t 1 ]]; then
+  do_attach
 else
-  echo "→ Starting new '$SESSION' tmux session with Claude Code..."
-  tmux new-session -d -s "$SESSION" -c "$PWD" -x 220 -y 50
-  # When the popup window closes, tear down the session too (unless opted out).
-  # Defer enabling destroy-unattached until a client has actually attached —
-  # otherwise the freshly-created detached session is destroyed before
-  # open-window.sh's `tmux attach-session` can connect.
-  if [[ "${CLAUDE_POPUP_KEEP_ALIVE:-0}" != "1" ]]; then
-    tmux set-hook -t "$SESSION" client-attached \
-      "set-option -t $SESSION destroy-unattached on" >/dev/null 2>&1
-  fi
-  CLAUDE_CMD="claude"
-  if (( ${#EXTRA_ARGS[@]} > 0 )); then
-    CLAUDE_CMD="claude $(printf '%q ' "${EXTRA_ARGS[@]}")"
-  fi
-  tmux send-keys -t "$SESSION" "$CLAUDE_CMD" Enter
+  do_popup_window
 fi
-
-"$(dirname "$0")/hooks/open-window.sh" "$SESSION"
-
-echo "✓ Claude Code window opened."
-echo "  Stop:    claude-popup --stop"
-echo "  Status:  claude-popup --status"
