@@ -50,9 +50,18 @@ EOF
     echo "[$(date '+%H:%M:%S')] open-window.sh: opening new Terminal window" >> "$LOG"
     local new_id
     new_id=$(osascript 2>>"$LOG" <<EOF
+set wasRunning to application "Terminal" is running
 tell application "Terminal"
   activate
-  do script "TMUX= tmux attach-session -t '$SESSION'"
+  if wasRunning then
+    do script "TMUX= tmux attach-session -t '$SESSION'"
+  else
+    repeat 40 times
+      if (count of windows) > 0 then exit repeat
+      delay 0.05
+    end repeat
+    do script "TMUX= tmux attach-session -t '$SESSION'" in window 1
+  end if
   return id of front window
 end tell
 EOF
@@ -87,9 +96,19 @@ EOF
     echo "[$(date '+%H:%M:%S')] open-window.sh: opening new iTerm window" >> "$LOG"
     local new_id
     new_id=$(osascript 2>>"$LOG" <<EOF
+set wasRunning to application "iTerm" is running
 tell application "iTerm"
   activate
-  set newWin to (create window with default profile command "TMUX= tmux attach-session -t '$SESSION'")
+  if wasRunning then
+    set newWin to (create window with default profile command "TMUX= tmux attach-session -t '$SESSION'")
+  else
+    repeat 40 times
+      if (count of windows) > 0 then exit repeat
+      delay 0.05
+    end repeat
+    tell current window to tell current session to write text "TMUX= tmux attach-session -t '$SESSION'"
+    set newWin to current window
+  end if
   return id of newWin
 end tell
 EOF

@@ -107,7 +107,22 @@ case "$LIFECYCLE" in
     else
       echo "No session to stop."
     fi
+    win_id=""
+    app="Terminal"
+    if [[ "$OSTYPE" == "darwin"* && -f "$USER_TAG.win-id" ]]; then
+      win_id=$(cat "$USER_TAG.win-id")
+      [[ "$(cat "$USER_TAG.term" 2>/dev/null)" == "iterm" ]] && app="iTerm"
+    fi
     rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term"
+    if [[ -n "$win_id" ]]; then
+      osascript 2>/dev/null <<OSEOF
+tell application "$app"
+  try
+    close (first window whose id is $win_id) saving no
+  end try
+end tell
+OSEOF
+    fi
     exit 0
     ;;
   status)
