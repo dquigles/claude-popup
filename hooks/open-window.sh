@@ -6,8 +6,9 @@
 # (Notification hook). Reads the persisted emulator kind from
 # /tmp/claude-popup-${USER}.term — currently "terminal" or "iterm".
 
-SESSION="${1:-claude-code}"
-USER_TAG="/tmp/claude-popup-${USER}"
+SESSION="${1:-claude-code-$(echo -n "$PWD" | (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-8)}"
+SESSION_KEY="${SESSION#claude-code-}"
+USER_TAG="/tmp/claude-popup-${USER}-${SESSION_KEY}"
 WIN_ID_FILE="$USER_TAG.win-id"
 TERM_FILE="$USER_TAG.term"
 LOG="/tmp/claude-popup-debug.log"
@@ -16,6 +17,9 @@ if ! tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "[$(date '+%H:%M:%S')] open-window.sh: tmux session '$SESSION' not found" >> "$LOG"
   exit 0
 fi
+
+COLS="${CLAUDE_POPUP_COLS:-160}"
+ROWS="${CLAUDE_POPUP_ROWS:-45}"
 
 TERM_KIND="terminal"
 [[ -f "$TERM_FILE" ]] && TERM_KIND=$(cat "$TERM_FILE")
@@ -90,6 +94,8 @@ tell application "Terminal"
     end repeat
     do script "TMUX= tmux attach-session -t '$SESSION'" in window 1
   end if
+  set number of columns of front window to $COLS
+  set number of rows of front window to $ROWS
   return id of front window
 end tell
 EOF
@@ -137,6 +143,10 @@ tell application "iTerm"
     tell current window to tell current session to write text "TMUX= tmux attach-session -t '$SESSION'"
     set newWin to current window
   end if
+  tell current session of newWin
+    set columns to $COLS
+    set rows to $ROWS
+  end tell
   return id of newWin
 end tell
 EOF

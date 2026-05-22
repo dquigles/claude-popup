@@ -8,6 +8,13 @@ REPO_URL="https://raw.githubusercontent.com/dquigles/claude-popup/main"
 INSTALL_DIR="$HOME/.claude-popup"
 CLAUDE_SETTINGS="$HOME/.claude/settings.json"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$SCRIPT_DIR/run.sh" && -d "$SCRIPT_DIR/hooks" ]]; then
+  SOURCE_MODE="local"
+else
+  SOURCE_MODE="remote"
+fi
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
@@ -98,11 +105,24 @@ echo "Installing claude-popup..."
 
 mkdir -p "$INSTALL_DIR/hooks"
 
-curl -fsSL "$REPO_URL/hooks/popup.sh"       -o "$INSTALL_DIR/hooks/popup.sh"
-curl -fsSL "$REPO_URL/hooks/detach.sh"      -o "$INSTALL_DIR/hooks/detach.sh"
-curl -fsSL "$REPO_URL/hooks/open-window.sh" -o "$INSTALL_DIR/hooks/open-window.sh"
-curl -fsSL "$REPO_URL/run.sh"               -o "$INSTALL_DIR/run.sh"
-curl -fsSL "$REPO_URL/uninstall.sh"         -o "$INSTALL_DIR/uninstall.sh"
+fetch_file() {
+  local rel="$1" dest="$2"
+  if [[ "$SOURCE_MODE" == "local" ]]; then
+    cp "$SCRIPT_DIR/$rel" "$dest"
+  else
+    curl -fsSL "$REPO_URL/$rel" -o "$dest"
+  fi
+}
+
+if [[ "$SOURCE_MODE" == "local" ]]; then
+  echo -e "  Source: ${GREEN}local clone${NC} ($SCRIPT_DIR)"
+fi
+
+fetch_file "hooks/popup.sh"       "$INSTALL_DIR/hooks/popup.sh"
+fetch_file "hooks/detach.sh"      "$INSTALL_DIR/hooks/detach.sh"
+fetch_file "hooks/open-window.sh" "$INSTALL_DIR/hooks/open-window.sh"
+fetch_file "run.sh"               "$INSTALL_DIR/run.sh"
+fetch_file "uninstall.sh"         "$INSTALL_DIR/uninstall.sh"
 
 chmod +x "$INSTALL_DIR/hooks/popup.sh" "$INSTALL_DIR/hooks/detach.sh" \
          "$INSTALL_DIR/hooks/open-window.sh" \
