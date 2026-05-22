@@ -85,9 +85,9 @@ The Notification hook won't pop a window when:
 
 **The PiP view only works for sessions you started through `claude-popup`.** If you have a plain `claude` running in another terminal, claude-popup can't attach to it — Unix PTYs can't be shared with a process that wasn't started inside a multiplexer. That plain `claude` keeps running on its own, completely independent; it just isn't a PiP-capable session.
 
-Other `claude` instances are fine to run alongside claude-popup — the Notification hook only fires inside the `claude-code` tmux session, so the VS Code Claude extension, scripts that shell out to `claude`, and any other claude workflows are unaffected.
+Other `claude` instances are fine to run alongside claude-popup — the Notification hook only fires inside a `claude-code-*` tmux session, so the VS Code Claude extension, scripts that shell out to `claude`, and any other claude workflows are unaffected.
 
-**Only one PiP session at a time.** claude-popup manages a single tmux session named `claude-code`. You can attach to it from many terminals (any number of PiP views), but you can't run two independent claude-popup PiPs simultaneously.
+**One session per directory.** Each `$PWD` gets its own `claude-code-<hash>` tmux session. You can have independent PiP sessions for different projects running at the same time. Each can be attached from many terminals, and each has its own popup window. Use `claude-popup --status` to see all running sessions, and `claude-popup --stop --all` to kill them all.
 
 If you'd like `claude-popup` to be your default, alias it: `alias claude=claude-popup` in your shell rc.
 
@@ -95,9 +95,9 @@ If you'd like `claude-popup` to be your default, alias it: `alias claude=claude-
 
 `run.sh` starts Claude Code inside a background tmux session rooted at `$PWD`. It then dispatches based on whether stdin/stdout are TTYs:
 
-- **Interactive (`[[ -t 0 && -t 1 ]]`)**: `tmux attach-session` against the current terminal. The frontmost app at attach time is recorded in `/tmp/claude-popup-${USER}.attached-host` so the Notification hook knows when to stay quiet.
-- **Non-interactive** (hook callers, scripts): `hooks/open-window.sh` opens or refocuses a Terminal/iTerm window attached to the session. Window id and emulator kind are persisted under `/tmp/claude-popup-${USER}.*` so subsequent triggers refocus the same window in the same app.
+- **Interactive (`[[ -t 0 && -t 1 ]]`)**: `tmux attach-session` against the current terminal. The frontmost app at attach time is recorded in `/tmp/claude-popup-${USER}-<hash>.attached-host` so the Notification hook knows when to stay quiet.
+- **Non-interactive** (hook callers, scripts): `hooks/open-window.sh` opens or refocuses a Terminal/iTerm window attached to the session. Window id and emulator kind are persisted under `/tmp/claude-popup-${USER}-<hash>.*` so subsequent triggers refocus the same window in the same app.
 
-Claude Code's `Notification` hook calls `hooks/popup.sh`, which delegates to the same window helper — refocusing if alive, opening if not. After you respond, `UserPromptSubmit`/`PostToolUse` hooks (`detach.sh`) restore focus to whichever app was frontmost before the popup interrupted you.
+Claude Code's `Notification` hook calls `hooks/popup.sh`, which derives the current session name from `$TMUX` and delegates to the same window helper — refocusing if alive, opening if not. After you respond, `UserPromptSubmit`/`PostToolUse` hooks (`detach.sh`) restore focus to whichever app was frontmost before the popup interrupted you.
 
-All hooks early-exit unless they're firing inside the `claude-code` tmux session, so plain `claude` running anywhere else is left alone.
+All hooks early-exit unless they're firing inside a `claude-code-*` tmux session, so plain `claude` running anywhere else is left alone.
