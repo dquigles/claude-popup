@@ -5,16 +5,19 @@
 
 cat >/dev/null  # drain Claude's payload — we don't need to inspect it
 
-SESSION="claude-code"
+# Derive session name from the current tmux environment.
+SESSION=$(tmux display-message -p '#S' 2>/dev/null)
 
-# Only act when this hook is running inside the claude-popup tmux session.
+# Only act when this hook is running inside a claude-popup tmux session.
 # Filters out VS Code's Claude extension and any other Claude session.
-if [[ -z "$TMUX" ]] || [[ "$(tmux display-message -p '#S' 2>/dev/null)" != "$SESSION" ]]; then
+if [[ -z "$TMUX" ]] || [[ "$SESSION" != claude-code-* ]]; then
   exit 0
 fi
 
-echo "[$(date '+%H:%M:%S')] popup.sh fired" >> /tmp/claude-popup-debug.log
-USER_TAG="/tmp/claude-popup-${USER}"
+SESSION_KEY="${SESSION#claude-code-}"
+
+echo "[$(date '+%H:%M:%S')] popup.sh fired (session=$SESSION)" >> /tmp/claude-popup-debug.log
+USER_TAG="/tmp/claude-popup-${USER}-${SESSION_KEY}"
 PREV_APP_FILE="$USER_TAG.prev-app"
 ATTACHED_HOST_FILE="$USER_TAG.attached-host"
 

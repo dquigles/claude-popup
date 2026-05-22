@@ -6,21 +6,26 @@
 
 PAYLOAD=$(cat)
 
-# Only act when this hook is running inside the claude-popup tmux session.
-if [[ -z "$TMUX" ]] || [[ "$(tmux display-message -p '#S' 2>/dev/null)" != "claude-code" ]]; then
+# Derive session name from the current tmux environment.
+SESSION=$(tmux display-message -p '#S' 2>/dev/null)
+
+# Only act when this hook is running inside a claude-popup tmux session.
+if [[ -z "$TMUX" ]] || [[ "$SESSION" != claude-code-* ]]; then
   exit 0
 fi
+
+SESSION_KEY="${SESSION#claude-code-}"
 
 EVENT=""
 if command -v jq &>/dev/null; then
   EVENT=$(echo "$PAYLOAD" | jq -r '.hook_event_name // empty' 2>/dev/null || true)
 fi
 
-echo "[$(date '+%H:%M:%S')] detach.sh fired event=${EVENT:-unknown}" >> /tmp/claude-popup-debug.log
+echo "[$(date '+%H:%M:%S')] detach.sh fired event=${EVENT:-unknown} session=$SESSION" >> /tmp/claude-popup-debug.log
 
 [[ "$OSTYPE" == "darwin"* ]] || exit 0
 
-USER_TAG="/tmp/claude-popup-${USER}"
+USER_TAG="/tmp/claude-popup-${USER}-${SESSION_KEY}"
 PREV_APP_FILE="$USER_TAG.prev-app"
 ATTACHED_HOST_FILE="$USER_TAG.attached-host"
 

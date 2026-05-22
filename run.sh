@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # claude-popup: run.sh
-# Single entry point. Manages a shared `claude-code` tmux session and either
-# attaches the current terminal to it (interactive shells) or opens a
-# Terminal/iTerm popup window attached to it (non-interactive callers like
-# Claude Code's Notification hook). Also supports --stop, --status, --reset,
-# and pass-through args after `--`.
+# Per-directory sessions: each $PWD gets its own claude-code-<hash> tmux session.
+# Multiple directories → multiple independent sessions, each with its own popup.
+# Use --status / --stop / --stop --all to manage sessions.
 
-SESSION="claude-code"
-USER_TAG="/tmp/claude-popup-${USER}"
+SESSION_KEY=$(echo -n "$PWD" | (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-8)
+SESSION="claude-code-${SESSION_KEY}"
+USER_TAG="/tmp/claude-popup-${USER}-${SESSION_KEY}"
 LOG="/tmp/claude-popup-debug.log"
 ATTACHED_HOST_FILE="$USER_TAG.attached-host"
+STOP_ALL=0
 
 rotate_log() {
   [[ -f "$LOG" ]] || return 0
@@ -32,9 +32,25 @@ detect_term() {
 }
 
 cleanup_stale() {
+  # Clean state for current session if its tmux session is gone.
   if ! tmux has-session -t "$SESSION" 2>/dev/null; then
-    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE" "$USER_TAG.here-app"
+    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" \
+          "$ATTACHED_HOST_FILE" "$USER_TAG.here-app"
   fi
+  # Sweep orphaned state files for any dead claude-popup sessions.
+  local f key sess
+  for f in /tmp/claude-popup-${USER}-*.win-id; do
+    [[ -f "$f" ]] || continue
+    key="${f%.win-id}"
+    key="${key##/tmp/claude-popup-${USER}-}"
+    sess="claude-code-${key}"
+    tmux has-session -t "$sess" 2>/dev/null && continue
+    rm -f "/tmp/claude-popup-${USER}-${key}.win-id" \
+          "/tmp/claude-popup-${USER}-${key}.prev-app" \
+          "/tmp/claude-popup-${USER}-${key}.term" \
+          "/tmp/claude-popup-${USER}-${key}.attached-host" \
+          "/tmp/claude-popup-${USER}-${key}.here-app"
+  done
 }
 
 # Frontmost macOS app name; empty on non-mac / on failure.
@@ -43,25 +59,19 @@ frontmost_app() {
   osascript -e 'tell application "System Events" to name of first application process whose frontmost is true' 2>/dev/null
 }
 
-print_status() {
-  if tmux has-session -t "$SESSION" 2>/dev/null; then
-    echo "Session '$SESSION': running"
-  else
-    echo "Session '$SESSION': not running"
-    return
+_show_session_status() {
+  local sess="$1"
+  local key="${sess#claude-code-}"
+  local ut="/tmp/claude-popup-${USER}-${key}"
+  echo "Session '$sess':"
+  if [[ -f "$ut.term" ]]; then
+    echo "  Emulator: $(cat "$ut.term")"
   fi
-
-  if [[ -f "$USER_TAG.term" ]]; then
-    echo "Emulator: $(cat "$USER_TAG.term")"
-  else
-    echo "Emulator: (unknown — no .term file)"
-  fi
-
-  if [[ -f "$USER_TAG.win-id" ]]; then
+  if [[ -f "$ut.win-id" ]]; then
     local win_id app alive
-    win_id=$(cat "$USER_TAG.win-id")
+    win_id=$(cat "$ut.win-id")
     app="Terminal"
-    [[ "$(cat "$USER_TAG.term" 2>/dev/null)" == "iterm" ]] && app="iTerm"
+    [[ "$(cat "$ut.term" 2>/dev/null)" == "iterm" ]] && app="iTerm"
     if [[ "$OSTYPE" == "darwin"* ]]; then
       alive=$(osascript 2>/dev/null <<EOF
 tell application "$app"
@@ -74,31 +84,59 @@ tell application "$app"
 end tell
 EOF
 )
-      echo "Window id $win_id ($app): ${alive:-unknown}"
+      echo "  Window id $win_id ($app): ${alive:-unknown}"
     else
-      echo "Window id $win_id"
+      echo "  Window id $win_id"
     fi
   else
-    echo "Window: (none tracked)"
+    echo "  Window: (none tracked)"
   fi
-
-  if [[ -f "$USER_TAG.prev-app" ]]; then
-    echo "Previous app (pending refocus): $(cat "$USER_TAG.prev-app")"
+  if [[ -f "$ut.attached-host" ]]; then
+    echo "  Attached host: $(cat "$ut.attached-host")"
   fi
-
-  if [[ -f "$ATTACHED_HOST_FILE" ]]; then
-    echo "Attached host: $(cat "$ATTACHED_HOST_FILE")"
-  else
-    echo "Attached host: (none)"
+  if [[ -f "$ut.here-app" ]]; then
+    echo "  Here-mode target: $(cat "$ut.here-app")"
   fi
-
-  if [[ -f "$USER_TAG.here-app" ]]; then
-    echo "Here-mode target: $(cat "$USER_TAG.here-app")"
-  fi
-
   local client_count
-  client_count=$(tmux list-clients -t "$SESSION" 2>/dev/null | wc -l | tr -d ' ')
-  echo "Attached clients: ${client_count:-0}"
+  client_count=$(tmux list-clients -t "$sess" 2>/dev/null | wc -l | tr -d ' ')
+  echo "  Attached clients: ${client_count:-0}"
+}
+
+print_status() {
+  local any=0 sess
+  while IFS= read -r sess; do
+    [[ "$sess" == claude-code-* ]] || continue
+    any=1
+    _show_session_status "$sess"
+  done < <(tmux list-sessions -F '#S' 2>/dev/null)
+  [[ "$any" == "0" ]] && echo "No claude-popup sessions running."
+}
+
+_stop_session() {
+  local sess="$1"
+  local key="${sess#claude-code-}"
+  local ut="/tmp/claude-popup-${USER}-${key}"
+  if tmux has-session -t "$sess" 2>/dev/null; then
+    tmux kill-session -t "$sess"
+    echo "Stopped session '$sess'."
+  else
+    echo "Session '$sess': not running."
+  fi
+  local win_id="" app="Terminal"
+  if [[ "$OSTYPE" == "darwin"* && -f "$ut.win-id" ]]; then
+    win_id=$(cat "$ut.win-id")
+    [[ "$(cat "$ut.term" 2>/dev/null)" == "iterm" ]] && app="iTerm"
+  fi
+  rm -f "$ut.win-id" "$ut.prev-app" "$ut.term" "$ut.attached-host" "$ut.here-app"
+  if [[ -n "$win_id" ]]; then
+    osascript 2>/dev/null <<OSEOF
+tell application "$app"
+  try
+    close (first window whose id is $win_id) saving no
+  end try
+end tell
+OSEOF
+  fi
 }
 
 # Create the tmux session if missing, or report that it's being reused.
@@ -111,6 +149,8 @@ ensure_session() {
   fi
   echo "→ Starting new '$SESSION' tmux session with Claude Code..."
   tmux new-session -d -s "$SESSION" -c "$PWD" -x 220 -y 50
+  tmux set-option -t "$SESSION" window-size latest >/dev/null 2>&1
+  tmux set-option -t "$SESSION" mouse on >/dev/null 2>&1
   # Tear down the session once the last client detaches (unless opted out).
   # Defer until first attach so the freshly-created detached session isn't
   # killed before the caller can connect.
@@ -118,9 +158,9 @@ ensure_session() {
     tmux set-hook -t "$SESSION" client-attached \
       "set-option -t $SESSION destroy-unattached on" >/dev/null 2>&1
   fi
-  local CLAUDE_CMD="claude"
+  local CLAUDE_CMD="command claude"
   if (( $# > 0 )); then
-    CLAUDE_CMD="claude $(printf '%q ' "$@")"
+    CLAUDE_CMD="command claude $(printf '%q ' "$@")"
   fi
   tmux send-keys -t "$SESSION" "$CLAUDE_CMD" Enter
 }
@@ -130,6 +170,10 @@ ensure_session() {
 # when that app is frontmost.
 do_attach() {
   if [[ -n "$TMUX" ]]; then
+    cur_sess=$(tmux display-message -p '#S' 2>/dev/null)
+    if [[ "$cur_sess" == claude-code-* ]]; then
+      exec command claude "${EXTRA_ARGS[@]}"
+    fi
     echo "claude-popup: already inside a tmux session ($TMUX)."
     echo "Detach first (Ctrl+B D), then re-run from a plain shell."
     exit 1
@@ -225,6 +269,7 @@ for arg in "$@"; do
     --inline)      LIFECYCLE="attach" ;;
     --popup)       LIFECYCLE="popup" ;;
     --here)        LIFECYCLE="here" ;;
+    --all)         STOP_ALL=1 ;;
     *)             EXTRA_ARGS+=("$arg") ;;
   esac
 done
@@ -234,27 +279,30 @@ cleanup_stale
 
 case "$LIFECYCLE" in
   stop)
-    if tmux has-session -t "$SESSION" 2>/dev/null; then
-      tmux kill-session -t "$SESSION"
-      echo "Stopped session '$SESSION'."
+    if [[ -n "$TMUX" ]]; then
+      cur_sess=$(tmux display-message -p '#S' 2>/dev/null)
+      if [[ "$cur_sess" == claude-code-* ]]; then
+        _stop_session "$cur_sess"
+      else
+        echo "Current tmux session '$cur_sess' is not a claude-popup session."
+      fi
+    elif [[ "$STOP_ALL" == "1" ]]; then
+      while IFS= read -r sess; do
+        [[ "$sess" == claude-code-* ]] && _stop_session "$sess"
+      done < <(tmux list-sessions -F '#S' 2>/dev/null)
+    elif tmux has-session -t "$SESSION" 2>/dev/null; then
+      _stop_session "$SESSION"
     else
-      echo "No session to stop."
-    fi
-    win_id=""
-    app="Terminal"
-    if [[ "$OSTYPE" == "darwin"* && -f "$USER_TAG.win-id" ]]; then
-      win_id=$(cat "$USER_TAG.win-id")
-      [[ "$(cat "$USER_TAG.term" 2>/dev/null)" == "iterm" ]] && app="iTerm"
-    fi
-    rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE" "$USER_TAG.here-app"
-    if [[ -n "$win_id" ]]; then
-      osascript 2>/dev/null <<OSEOF
-tell application "$app"
-  try
-    close (first window whose id is $win_id) saving no
-  end try
-end tell
-OSEOF
+      running=$(tmux list-sessions -F '#S' 2>/dev/null | grep '^claude-code-' || true)
+      if [[ -z "$running" ]]; then
+        echo "No claude-popup sessions running."
+      else
+        echo "No session for current directory. Running sessions:"
+        echo "$running" | while IFS= read -r s; do
+          echo "  claude-popup --stop ${s#claude-code-}"
+        done
+        echo "  claude-popup --stop --all"
+      fi
     fi
     exit 0
     ;;
@@ -263,9 +311,17 @@ OSEOF
     exit 0
     ;;
   reset)
-    if tmux has-session -t "$SESSION" 2>/dev/null; then
-      tmux kill-session -t "$SESSION"
-      echo "Session reset."
+    if [[ -n "$TMUX" ]]; then
+      cur_sess=$(tmux display-message -p '#S' 2>/dev/null)
+      if [[ "$cur_sess" == claude-code-* ]]; then
+        _stop_session "$cur_sess"
+        echo "Session reset — re-run claude-popup to start a new session."
+      fi
+    elif tmux has-session -t "$SESSION" 2>/dev/null; then
+      _stop_session "$SESSION"
+      echo "Session for current directory reset."
+    else
+      echo "No claude-popup session for current directory."
     fi
     rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE" "$USER_TAG.here-app"
     ;;
