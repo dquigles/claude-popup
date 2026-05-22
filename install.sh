@@ -122,13 +122,36 @@ fetch_file "hooks/popup.sh"       "$INSTALL_DIR/hooks/popup.sh"
 fetch_file "hooks/detach.sh"      "$INSTALL_DIR/hooks/detach.sh"
 fetch_file "hooks/open-window.sh" "$INSTALL_DIR/hooks/open-window.sh"
 fetch_file "run.sh"               "$INSTALL_DIR/run.sh"
+fetch_file "update-check.sh"      "$INSTALL_DIR/update-check.sh"
 fetch_file "uninstall.sh"         "$INSTALL_DIR/uninstall.sh"
 
 chmod +x "$INSTALL_DIR/hooks/popup.sh" "$INSTALL_DIR/hooks/detach.sh" \
          "$INSTALL_DIR/hooks/open-window.sh" \
-         "$INSTALL_DIR/run.sh" "$INSTALL_DIR/uninstall.sh"
+         "$INSTALL_DIR/run.sh" "$INSTALL_DIR/update-check.sh" \
+         "$INSTALL_DIR/uninstall.sh"
 
 echo -e "  ${GREEN}✓ Files installed to $INSTALL_DIR${NC}"
+
+# ── Record baseline commit SHA for update checks ─────────────────────────────
+VERSION_FILE="$INSTALL_DIR/.version"
+BASELINE_SHA=""
+if [[ "$SOURCE_MODE" == "local" ]] && command -v git &>/dev/null; then
+  BASELINE_SHA=$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || true)
+fi
+if [[ -z "$BASELINE_SHA" ]]; then
+  BASELINE_SHA=$(curl -fsSL --max-time 5 \
+    "https://api.github.com/repos/dquigles/claude-popup/commits/main" 2>/dev/null \
+    | jq -r '.sha // empty' 2>/dev/null || true)
+fi
+if [[ -n "$BASELINE_SHA" && "$BASELINE_SHA" != "null" ]]; then
+  echo "$BASELINE_SHA" > "$VERSION_FILE"
+  # Stamp the throttle so the first invocation doesn't immediately re-check.
+  date +%s > "$INSTALL_DIR/.update-check"
+  echo -e "  ${GREEN}✓ Version pinned: ${BASELINE_SHA:0:7}${NC}"
+else
+  # No baseline available — first interactive run will seed silently.
+  rm -f "$VERSION_FILE"
+fi
 
 # ── Ask where to apply hook ───────────────────────────────────────────────────
 echo ""

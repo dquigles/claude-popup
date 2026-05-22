@@ -254,23 +254,27 @@ do_popup_window() {
 EXTRA_ARGS=()
 LIFECYCLE=""
 SEEN_DD=0
+NO_UPDATE_CHECK=0
+FORCE_UPDATE_CHECK=0
 for arg in "$@"; do
   if [[ "$SEEN_DD" == "1" ]]; then
     EXTRA_ARGS+=("$arg")
     continue
   fi
   case "$arg" in
-    --)            SEEN_DD=1 ;;
-    --stop|--kill) LIFECYCLE="stop" ;;
-    --status)      LIFECYCLE="status" ;;
-    --reset)       LIFECYCLE="reset" ;;
+    --)                SEEN_DD=1 ;;
+    --stop|--kill)     LIFECYCLE="stop" ;;
+    --status)          LIFECYCLE="status" ;;
+    --reset)           LIFECYCLE="reset" ;;
     # --inline is an undocumented alias to force the attach path
     # (useful for callers without a TTY who still want inline behavior).
-    --inline)      LIFECYCLE="attach" ;;
-    --popup)       LIFECYCLE="popup" ;;
-    --here)        LIFECYCLE="here" ;;
-    --all)         STOP_ALL=1 ;;
-    *)             EXTRA_ARGS+=("$arg") ;;
+    --inline)          LIFECYCLE="attach" ;;
+    --popup)           LIFECYCLE="popup" ;;
+    --here)            LIFECYCLE="here" ;;
+    --all)             STOP_ALL=1 ;;
+    --no-update-check) NO_UPDATE_CHECK=1 ;;
+    --check-update)    FORCE_UPDATE_CHECK=1 ;;
+    *)                 EXTRA_ARGS+=("$arg") ;;
   esac
 done
 
@@ -326,6 +330,20 @@ case "$LIFECYCLE" in
     rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE" "$USER_TAG.here-app"
     ;;
 esac
+
+# Update check: only when interactive, not opted out, and not mid-reset.
+# --stop / --status exit above; --reset falls through but is short-lived.
+if [[ "$NO_UPDATE_CHECK" != "1" \
+      && "${CLAUDE_POPUP_NO_UPDATE_CHECK:-0}" != "1" \
+      && "$LIFECYCLE" != "reset" \
+      && -t 0 && -t 1 ]]; then
+  UPDATE_CHECK_SCRIPT="$(dirname "$0")/update-check.sh"
+  if [[ -f "$UPDATE_CHECK_SCRIPT" ]]; then
+    # shellcheck disable=SC1090
+    source "$UPDATE_CHECK_SCRIPT"
+    maybe_check_update "$FORCE_UPDATE_CHECK"
+  fi
+fi
 
 # Dispatch:
 #   --inline (alias 'attach')  → always attach this terminal

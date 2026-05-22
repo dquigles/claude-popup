@@ -48,6 +48,17 @@ claude-popup --reset         # kill and re-create
 claude-popup -- --resume     # everything after `--` is passed to `claude` on first start
 ```
 
+### Updates
+
+On interactive launches, `claude-popup` checks GitHub for a newer `main` commit at most once per day and prompts before refreshing the installed scripts. Lifecycle commands (`--stop`, `--status`, `--reset`) and hook-triggered (non-TTY) runs never prompt.
+
+```bash
+claude-popup --check-update      # force a check now, bypassing the 24h throttle
+claude-popup --no-update-check   # skip the check for this invocation
+```
+
+Set `CLAUDE_POPUP_NO_UPDATE_CHECK=1` in your shell rc to disable the check permanently. Accepted updates only refresh files in `~/.claude-popup/` — they do not touch your Claude settings or shell rc.
+
 ### `--here`: use this terminal as the popup
 
 By default, running `claude-popup` from an interactive shell attaches inline and **suppresses** popup focus when the host app (e.g. `Code`, `Cursor`) is frontmost — the assumption is that you're already in your editor and don't want a popup.
@@ -74,6 +85,7 @@ The Notification hook won't pop a window when:
 - `CLAUDE_POPUP_TERMINAL=iterm|terminal` — force a specific emulator instead of auto-detect.
 - `CLAUDE_POPUP_NOTIFY=0` — suppress the macOS notification banner when Claude needs input.
 - `CLAUDE_POPUP_KEEP_ALIVE=1` — keep the tmux session running after the last view closes (default: the session ends with its last viewer).
+- `CLAUDE_POPUP_NO_UPDATE_CHECK=1` — never check for updates on launch.
 
 ## Requirements
 
