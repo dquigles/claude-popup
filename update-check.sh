@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # claude-popup: update-check.sh
-# Sourced by run.sh. Compares the installed commit SHA against main HEAD on
-# GitHub once per day and offers to refresh script files in place.
+# Sourced by run.sh for the `--update` flag. Compares the installed commit SHA
+# against main HEAD on GitHub and refreshes the script files in place on demand.
 
 CLAUDE_POPUP_REPO="${CLAUDE_POPUP_REPO:-dquigles/claude-popup}"
 CLAUDE_POPUP_RAW_URL="https://raw.githubusercontent.com/${CLAUDE_POPUP_REPO}/main"
 CLAUDE_POPUP_API_URL="https://api.github.com/repos/${CLAUDE_POPUP_REPO}/commits/main"
-CLAUDE_POPUP_UPDATE_THROTTLE="${CLAUDE_POPUP_UPDATE_THROTTLE:-86400}"
 
 _uc_log() {
   local log="${LOG:-/tmp/claude-popup-debug.log}"
@@ -64,64 +63,38 @@ _uc_do_update() {
   _uc_log "updated to $new_sha"
 }
 
-maybe_check_update() {
+# On-demand update (the `--update` flag). Fetches main HEAD, and if it differs
+# from the installed baseline, refreshes the script files in place. Pass "1" to
+# force a re-download even when already up to date.
+run_update() {
   local force="${1:-0}"
   local install_dir
   install_dir=$(_uc_install_dir)
   local version_file="$install_dir/.version"
-  local stamp_file="$install_dir/.update-check"
-
-  local now last
-  now=$(date +%s)
-  if [[ "$force" != "1" && -f "$stamp_file" ]]; then
-    last=$(cat "$stamp_file" 2>/dev/null || echo 0)
-    [[ "$last" =~ ^[0-9]+$ ]] || last=0
-    if (( now - last < CLAUDE_POPUP_UPDATE_THROTTLE )); then
-      _uc_log "throttled (last=$last now=$now)"
-      return 0
-    fi
-  fi
-
-  # Write the stamp upfront so transient failures don't re-prompt today.
-  echo "$now" > "$stamp_file" 2>/dev/null || true
 
   local remote_sha
   remote_sha=$(curl -fsSL --max-time 5 "$CLAUDE_POPUP_API_URL" 2>>"${LOG:-/dev/null}" \
                | jq -r '.sha // empty' 2>>"${LOG:-/dev/null}")
   if [[ -z "$remote_sha" || "$remote_sha" == "null" ]]; then
+    echo "claude-popup: could not reach GitHub to check for updates." >&2
     _uc_log "fetch failed"
-    return 0
+    return 1
   fi
 
   local local_sha=""
   [[ -f "$version_file" ]] && local_sha=$(cat "$version_file" 2>/dev/null | tr -d '[:space:]')
-  if [[ -z "$local_sha" ]]; then
-    # First check with no baseline — silently adopt current remote SHA.
-    echo "$remote_sha" > "$version_file"
-    _uc_log "seeded baseline $remote_sha"
-    return 0
-  fi
 
-  if [[ "$local_sha" == "$remote_sha" ]]; then
+  if [[ "$force" != "1" && -n "$local_sha" && "$local_sha" == "$remote_sha" ]]; then
+    echo "claude-popup: already up to date (${local_sha:0:7})."
     _uc_log "up to date ($local_sha)"
     return 0
   fi
 
-  local short_l="${local_sha:0:7}" short_r="${remote_sha:0:7}"
-  echo "claude-popup: update available (${short_l} → ${short_r})" >&2
-  local ans=""
-  # Prompt via /dev/tty so a piped stdin can't auto-confirm. If the tty is
-  # unreachable, treat as decline — never download without explicit consent.
-  if ! { read -rp "Update now? [Y/n] " ans </dev/tty; } 2>/dev/null; then
-    _uc_log "no tty for prompt; skipping update"
-    return 0
+  if [[ -n "$local_sha" ]]; then
+    echo "claude-popup: updating ${local_sha:0:7} → ${remote_sha:0:7}..."
+  else
+    echo "claude-popup: installing latest (${remote_sha:0:7})..."
   fi
-  case "$ans" in
-    n|N|no|NO|No)
-      _uc_log "user declined $remote_sha"
-      return 0
-      ;;
-  esac
 
   _uc_do_update "$remote_sha" "$install_dir"
 }

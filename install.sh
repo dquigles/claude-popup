@@ -132,7 +132,7 @@ chmod +x "$INSTALL_DIR/hooks/popup.sh" "$INSTALL_DIR/hooks/detach.sh" \
 
 echo -e "  ${GREEN}✓ Files installed to $INSTALL_DIR${NC}"
 
-# ── Record baseline commit SHA for update checks ─────────────────────────────
+# ── Record baseline commit SHA so `claude-popup --update` can compare ────────
 VERSION_FILE="$INSTALL_DIR/.version"
 BASELINE_SHA=""
 if [[ "$SOURCE_MODE" == "local" ]] && command -v git &>/dev/null; then
@@ -145,11 +145,9 @@ if [[ -z "$BASELINE_SHA" ]]; then
 fi
 if [[ -n "$BASELINE_SHA" && "$BASELINE_SHA" != "null" ]]; then
   echo "$BASELINE_SHA" > "$VERSION_FILE"
-  # Stamp the throttle so the first invocation doesn't immediately re-check.
-  date +%s > "$INSTALL_DIR/.update-check"
   echo -e "  ${GREEN}✓ Version pinned: ${BASELINE_SHA:0:7}${NC}"
 else
-  # No baseline available — first interactive run will seed silently.
+  # No baseline available — `--update` will just install latest unconditionally.
   rm -f "$VERSION_FILE"
 fi
 

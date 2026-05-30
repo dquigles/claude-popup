@@ -245,12 +245,41 @@ do_popup_window() {
   echo "  Status:  claude-popup --status"
 }
 
+usage() {
+  cat <<'EOF'
+claude-popup — picture-in-picture for Claude Code.
+
+Usage:
+  claude-popup [flag] [-- <claude args>]
+
+Run with no flag in an interactive shell to attach this terminal to the
+shared session (just like plain `claude`). Hook-triggered runs pop a window.
+
+Flags:
+  --here           Use this terminal/window as the popup target
+  --popup          Force-open a floating popup window for the session
+  --status         Show session, window, and attached-host state
+  --stop, --kill   Kill the session and close its tracked window
+  --stop --all     Kill every running claude-popup session
+  --reset          Kill and re-create the session
+  --update         Update the installed scripts to the latest from GitHub
+  --help, -h       Show this help
+
+Anything after `--` is passed to `claude` on first start, e.g.:
+  claude-popup -- --resume
+
+Environment:
+  CLAUDE_POPUP_TERMINAL=iterm|terminal   Force a specific emulator
+  CLAUDE_POPUP_NOTIFY=0                   Suppress the macOS notification banner
+  CLAUDE_POPUP_KEEP_ALIVE=1              Keep the session alive after last view
+EOF
+}
+
 # ── parse args ────────────────────────────────────────────────────────────────
 EXTRA_ARGS=()
 LIFECYCLE=""
 SEEN_DD=0
-NO_UPDATE_CHECK=0
-FORCE_UPDATE_CHECK=0
+FORCE_UPDATE=0
 for arg in "$@"; do
   if [[ "$SEEN_DD" == "1" ]]; then
     EXTRA_ARGS+=("$arg")
@@ -267,11 +296,17 @@ for arg in "$@"; do
     --popup)           LIFECYCLE="popup" ;;
     --here)            LIFECYCLE="here" ;;
     --all)             STOP_ALL=1 ;;
-    --no-update-check) NO_UPDATE_CHECK=1 ;;
-    --check-update)    FORCE_UPDATE_CHECK=1 ;;
+    --update)          LIFECYCLE="update" ;;
+    --force)           FORCE_UPDATE=1 ;;
+    --help|-h)         LIFECYCLE="help" ;;
     *)                 EXTRA_ARGS+=("$arg") ;;
   esac
 done
+
+if [[ "$LIFECYCLE" == "help" ]]; then
+  usage
+  exit 0
+fi
 
 rotate_log
 cleanup_stale
@@ -309,6 +344,17 @@ case "$LIFECYCLE" in
     print_status
     exit 0
     ;;
+  update)
+    UPDATE_CHECK_SCRIPT="$(dirname "$0")/update-check.sh"
+    if [[ ! -f "$UPDATE_CHECK_SCRIPT" ]]; then
+      echo "claude-popup: update-check.sh not found next to run.sh; cannot update." >&2
+      exit 1
+    fi
+    # shellcheck disable=SC1090
+    source "$UPDATE_CHECK_SCRIPT"
+    run_update "$FORCE_UPDATE"
+    exit $?
+    ;;
   reset)
     if [[ -n "$TMUX" ]]; then
       cur_sess=$(tmux display-message -p '#S' 2>/dev/null)
@@ -325,20 +371,6 @@ case "$LIFECYCLE" in
     rm -f "$USER_TAG.win-id" "$USER_TAG.prev-app" "$USER_TAG.term" "$ATTACHED_HOST_FILE" "$USER_TAG.here-app"
     ;;
 esac
-
-# Update check: only when interactive, not opted out, and not mid-reset.
-# --stop / --status exit above; --reset falls through but is short-lived.
-if [[ "$NO_UPDATE_CHECK" != "1" \
-      && "${CLAUDE_POPUP_NO_UPDATE_CHECK:-0}" != "1" \
-      && "$LIFECYCLE" != "reset" \
-      && -t 0 && -t 1 ]]; then
-  UPDATE_CHECK_SCRIPT="$(dirname "$0")/update-check.sh"
-  if [[ -f "$UPDATE_CHECK_SCRIPT" ]]; then
-    # shellcheck disable=SC1090
-    source "$UPDATE_CHECK_SCRIPT"
-    maybe_check_update "$FORCE_UPDATE_CHECK"
-  fi
-fi
 
 # Dispatch:
 #   --inline (alias 'attach')  → always attach this terminal
