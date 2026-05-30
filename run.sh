@@ -4,7 +4,7 @@
 # Multiple directories → multiple independent sessions, each with its own popup.
 # Use --status / --stop / --stop --all to manage sessions.
 
-SESSION_KEY=$(echo -n "$PWD" | (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-8)
+SESSION_KEY=$(echo -n "$PWD-$RANDOM" | (shasum -a 256 2>/dev/null || sha256sum) | cut -c1-8)
 SESSION="claude-code-${SESSION_KEY}"
 USER_TAG="/tmp/claude-popup-${USER}-${SESSION_KEY}"
 LOG="/tmp/claude-popup-debug.log"
@@ -139,14 +139,9 @@ OSEOF
   fi
 }
 
-# Create the tmux session if missing, or report that it's being reused.
-# Args after function name (if any) are appended to the `claude` command
-# only when a fresh session is created.
+# Create a new tmux session and start claude in it.
+# Args (if any) are appended to the `claude` command.
 ensure_session() {
-  if tmux has-session -t "$SESSION" 2>/dev/null; then
-    echo "→ Session '$SESSION' already running."
-    return 0
-  fi
   echo "→ Starting new '$SESSION' tmux session with Claude Code..."
   tmux new-session -d -s "$SESSION" -c "$PWD" -x 220 -y 50
   tmux set-option -t "$SESSION" window-size latest >/dev/null 2>&1
