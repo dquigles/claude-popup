@@ -51,8 +51,17 @@ EOF
       fi
       ;;
   esac
-  osascript -e "tell application \"$HERE_APP\" to activate" 2>/dev/null
-  echo "[$(date '+%H:%M:%S')] open-window.sh: here-mode activated $HERE_APP" >> "$LOG"
+  # No tracked terminal window (editor-hosted terminal such as VSCode/Cursor, or
+  # a failed window query). Refocus the host by process name via System Events,
+  # which — unlike `tell application "X" to activate` — never launches a new app.
+  # This is what kept popping open Apple Terminal for VSCode users, since the
+  # recorded host name ("Code") is a process name, not an AppleScript app name.
+  # Fall back to `activate` if no process matches (e.g. a real terminal whose
+  # window id could not be captured).
+  if ! osascript -e "tell application \"System Events\" to set frontmost of (first process whose name is \"$HERE_APP\") to true" 2>/dev/null; then
+    osascript -e "tell application \"$HERE_APP\" to activate" 2>/dev/null
+  fi
+  echo "[$(date '+%H:%M:%S')] open-window.sh: here-mode refocused $HERE_APP" >> "$LOG"
   exit 0
 fi
 
