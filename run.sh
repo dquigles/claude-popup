@@ -204,14 +204,20 @@ do_here() {
     exit 1
   fi
 
-  local term_kind app host win_id
+  local term_kind app here_app host win_id
   term_kind=$(detect_term)
   host=$(frontmost_app)
   [[ -z "$host" ]] && host="$TERM_PROGRAM"
 
-  case "$term_kind" in
-    terminal) app="Terminal" ;;
-    iterm)    app="iTerm" ;;
+  # Only real Terminal.app / iTerm windows expose a queryable front-window id and
+  # a usable AppleScript application name. Editor-hosted terminals (VSCode,
+  # Cursor, …) are refocused by process name instead (see hooks/open-window.sh),
+  # so we must NOT run `tell application "Terminal" …` for them — that would
+  # launch Apple Terminal.
+  case "$TERM_PROGRAM" in
+    Apple_Terminal) app="Terminal"; here_app="Terminal" ;;
+    iTerm.app)      app="iTerm";    here_app="iTerm" ;;
+    *)              here_app="$host" ;;
   esac
 
   if [[ -n "$app" ]]; then
@@ -224,7 +230,7 @@ do_here() {
   else
     rm -f "$USER_TAG.win-id"
   fi
-  echo "${host:-$app}" > "$USER_TAG.here-app"
+  echo "$here_app" > "$USER_TAG.here-app"
   rm -f "$ATTACHED_HOST_FILE"
 
   ensure_session "${EXTRA_ARGS[@]}"
